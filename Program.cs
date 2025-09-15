@@ -5,8 +5,8 @@ namespace ShellEmulator
         [STAThread]
         static void Main(string[] args)
         {
-            string vfsPath = "";
-            string scriptPath = "";
+            string? vfsPath = null;
+            string? scriptPath = null;
 
             for (int i = 0; i < args.Length; i++)
             {

@@ -8,10 +8,10 @@ namespace ShellEmulator
         private TextBox inputBox;
         private Button sendButton;
 
-        private readonly string vfsPath;
-        private readonly string scriptPath;
+        private readonly string? vfsPath;
+        private readonly string? scriptPath;
 
-        public MainForm(string vfsPath, string scriptPath)
+        public MainForm(string? vfsPath, string? scriptPath)
         {
             this.vfsPath = vfsPath;
             this.scriptPath = scriptPath;
@@ -206,7 +206,7 @@ namespace ShellEmulator
                 {
                     string line = rawLine.Trim();
 
-                    if (line.StartsWith("#") || line.StartsWith("//") || line.Length == 0)
+                    if (line.StartsWith('#') || line.StartsWith("//") || line.Length == 0)
                         continue;
 
                     ProcessInput(line);
