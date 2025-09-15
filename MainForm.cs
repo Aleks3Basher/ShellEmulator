@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.RegularExpressions;
 
 namespace ShellEmulator
 {
@@ -145,7 +146,10 @@ namespace ShellEmulator
             }
             AppendOutput("> " + line);
 
-            var parts = line.Split([' '], StringSplitOptions.RemoveEmptyEntries);
+            var matches = Regex.Matches(line, @"[\""].+?[\""]|[^ ]+");
+            var parts = matches
+                .Select(m => m.Value.Trim('"'))
+                .ToArray();
             if (parts.Length == 0)
             {
                 RenderPromt();
