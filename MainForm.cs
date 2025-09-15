@@ -1,17 +1,20 @@
-
 using System.Net;
 
 namespace ShellEmulator
 {
     public partial class MainForm : Form
     {
-
         private TextBox outputBox;
         private TextBox inputBox;
         private Button sendButton;
 
-        public MainForm()
+        private readonly string vfsPath;
+        private readonly string scriptPath;
+
+        public MainForm(string vfsPath, string scriptPath)
         {
+            this.vfsPath = vfsPath;
+            this.scriptPath = scriptPath;
             InitializeComponent();
             InitUI();
         }
@@ -22,7 +25,7 @@ namespace ShellEmulator
             string host;
             try { host = Dns.GetHostName(); }
             catch { host = "host"; }
-            this.Text = "Ёмул€тор - [" + user + "]@" + host + "]";
+            this.Text = "Ёмул€тор - [" + user + "@" + host + "]";
 
             this.Width = 800;
             this.Height = 600;
@@ -56,11 +59,7 @@ namespace ShellEmulator
             sendButton.Top = this.ClientSize.Height - sendButton.Height - 8;
             sendButton.Click += OnButtonClick;
 
-            this.Resize += (s, e) =>
-            {
-                OnResizeControl();
-            };
-
+            this.Resize += (s, e) => { OnResizeControl(); };
             inputBox.KeyDown += OnInputKeyDown;
 
             this.Controls.Add(outputBox);
@@ -68,9 +67,16 @@ namespace ShellEmulator
             this.Controls.Add(inputBox);
 
             PrintWelcome();
+            PrintConfig();
             RenderPromt();
+
             inputBox.Focus();
             OnResizeControl();
+
+            if (!string.IsNullOrEmpty(scriptPath))
+            {
+                RunStartupScript(scriptPath);
+            }
         }
 
         private void OnResizeControl()
@@ -83,7 +89,14 @@ namespace ShellEmulator
 
         private void PrintWelcome()
         {
-            AppendOutput("Ёмул€тор");
+            AppendOutput("Ёмул€тор запущен");
+        }
+
+        private void PrintConfig()
+        {
+            AppendOutput(" онфигураци€:");
+            AppendOutput("  VFS Path: " + (vfsPath ?? "<не задан>"));
+            AppendOutput("  Script Path: " + (scriptPath ?? "<не задан>"));
         }
 
         private void AppendOutput(string str)
@@ -104,7 +117,7 @@ namespace ShellEmulator
             AppendOutput(user + "@" + host + ":$ ");
         }
 
-        private void OnInputKeyDown(object sender, KeyEventArgs e)
+        private void OnInputKeyDown(object? sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Enter)
             {
@@ -114,7 +127,7 @@ namespace ShellEmulator
             }
         }
 
-        private void OnButtonClick(object sender, EventArgs e)
+        private void OnButtonClick(object? sender, EventArgs e)
         {
             ProcessInput(inputBox.Text);
             inputBox.Clear();
@@ -132,7 +145,7 @@ namespace ShellEmulator
             }
             AppendOutput("> " + line);
 
-            var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var parts = line.Split([' '], StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 0)
             {
                 RenderPromt();
@@ -174,6 +187,35 @@ namespace ShellEmulator
         {
             var argLine = args.Length == 0 ? "" : string.Join(" ", args);
             AppendOutput("[" + name + "] args: " + argLine);
+        }
+
+        private void RunStartupScript(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    AppendOutput("ќшибка: файл скрипта не найден: " + path);
+                    return;
+                }
+
+                var lines = File.ReadAllLines(path);
+                AppendOutput("¬ыполнение стартового скрипта: " + path);
+
+                foreach (var rawLine in lines)
+                {
+                    string line = rawLine.Trim();
+
+                    if (line.StartsWith("#") || line.StartsWith("//") || line.Length == 0)
+                        continue;
+
+                    ProcessInput(line);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendOutput("ќшибка выполнени€ скрипта: " + ex.Message);
+            }
         }
     }
 }
