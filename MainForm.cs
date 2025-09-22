@@ -1,4 +1,6 @@
+using ShellEmulator.model;
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ShellEmulator
@@ -11,6 +13,10 @@ namespace ShellEmulator
 
         private readonly string? vfsPath;
         private readonly string? scriptPath;
+
+        private Vfs? currentVfs = null;
+        private VfsNode currentNode = null!;
+        private string currentVfsPath = "/";
 
         public MainForm(string? vfsPath, string? scriptPath)
         {
@@ -69,6 +75,12 @@ namespace ShellEmulator
 
             PrintWelcome();
             PrintConfig();
+
+            if (!string.IsNullOrEmpty(vfsPath))
+            {
+                TryLoadVfs(vfsPath);
+            }
+
             RenderPromt();
 
             inputBox.Focus();
@@ -77,6 +89,29 @@ namespace ShellEmulator
             if (!string.IsNullOrEmpty(scriptPath))
             {
                 RunStartupScript(scriptPath);
+            }
+        }
+
+        private void TryLoadVfs(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    AppendOutput("ќшибка: VFS файл не найден: " + path);
+                    return;
+                }
+                var raw = File.ReadAllBytes(path);
+                var name = Path.GetFileName(path) ?? path;
+                currentVfs = new Vfs(name, raw);
+                currentNode = currentVfs.Root;
+                currentVfsPath = "/";
+                AppendOutput("VFS загружен: " + name);
+                AppendOutput("SHA-256: " + currentVfs.Sha256Hex);
+            }
+            catch (Exception ex)
+            {
+                AppendOutput("ќшибка загрузки VFS: " + ex.Message);
             }
         }
 
@@ -115,7 +150,7 @@ namespace ShellEmulator
             string host;
             try { host = Dns.GetHostName(); }
             catch { host = "host"; }
-            AppendOutput(user + "@" + host + ":$ ");
+            AppendOutput(user + "@" + host + ":$ " + (currentVfs != null ? "[vfs:" + currentVfs.Name + currentVfsPath + "]" : ""));
         }
 
         private void OnInputKeyDown(object? sender, KeyEventArgs e)
@@ -167,10 +202,19 @@ namespace ShellEmulator
                         this.Close();
                         return;
                     case "ls":
-                        CmdStub("ls", args);
+                        CmdLs(args);
                         break;
                     case "cd":
-                        CmdStub("cd", args);
+                        CmdCd(args);
+                        break;
+                    case "vfs-info":
+                        CmdVfsInfo(args);
+                        break;
+                    case "vfs-load":
+                        CmdVfsLoad(args);
+                        break;
+                    case "vfs-cat":
+                        CmdVfsCat(args);
                         break;
                     default:
                         AppendOutput("ќшибка: неизвестна€ команда '" + cmd + "'");
@@ -184,6 +228,171 @@ namespace ShellEmulator
             finally
             {
                 RenderPromt();
+            }
+        }
+
+        private void CmdVfsLoad(string[] args)
+        {
+            if (args.Length == 0)
+            {
+                AppendOutput("»спользование: vfs-load <путь к csv>");
+                return;
+            }
+            TryLoadVfs(args[0]);
+        }
+
+        private void CmdVfsInfo(string[] args)
+        {
+            if (currentVfs == null)
+            {
+                AppendOutput("VFS не загружен");
+                return;
+            }
+            AppendOutput("VFS: " + currentVfs.Name);
+            AppendOutput("SHA-256: " + currentVfs.Sha256Hex);
+        }
+
+        private void CmdLs(string[] args)
+        {
+            if (currentVfs == null)
+            {
+                CmdStub("ls", args);
+                return;
+            }
+
+            var targetPath = args.Length > 0 ? args[0] : currentVfsPath;
+            var node = ResolveVfsPath(targetPath);
+            if (node == null)
+            {
+                AppendOutput("ls: путь не найден: " + targetPath);
+                return;
+            }
+            if (!node.IsDirectory)
+            {
+                AppendOutput(targetPath + "\t<file>");
+                return;
+            }
+            foreach (var child in node.Children.OrderBy(c => c.IsDirectory ? 0 : 1).ThenBy(c => c.Name))
+            {
+                AppendOutput((child.IsDirectory ? "d" : "-") + "\t" + child.Name);
+            }
+        }
+
+        private VfsNode? ResolveVfsPath(string path)
+        {
+            if (path == ".") return currentNode;
+            if (path == "/" || string.IsNullOrEmpty(path)) return currentVfs?.Root;
+            if (path.StartsWith("/")) return currentVfs?.Resolve(path);
+            var rel = currentVfsPath.TrimEnd('/');
+            if (!rel.EndsWith("/")) rel += "/";
+            var full = (rel + path).Replace("//", "/");
+            return currentVfs?.Resolve(full);
+        }
+
+        private void CmdCd(string[] args)
+        {
+            if (currentVfs == null)
+            {
+                CmdStub("cd", args);
+                return;
+            }
+            if (args.Length == 0)
+            {
+                currentNode = currentVfs.Root;
+                currentVfsPath = "/";
+                return;
+            }
+            var target = args[0];
+            VfsNode? node;
+            if (target.StartsWith("/")) node = currentVfs.Resolve(target);
+            else node = ResolveVfsPath(target);
+
+            if (node == null)
+            {
+                AppendOutput("cd: путь не найден: " + target);
+                return;
+            }
+            if (!node.IsDirectory)
+            {
+                AppendOutput("cd: не директори€: " + target);
+                return;
+            }
+            var stack = new Stack<string>();
+            var cur = node;
+            while (cur != null && cur != currentVfs.Root)
+            {
+                stack.Push(cur.Name);
+                cur = FindParent(currentVfs.Root, cur);
+            }
+            var sb = new StringBuilder("/");
+            while (stack.Count > 0)
+            {
+                sb.Append(stack.Pop());
+                if (stack.Count > 0) sb.Append('/');
+                else sb.Append('/');
+            }
+            currentVfsPath = sb.ToString();
+            currentNode = node;
+        }
+
+        private VfsNode? FindParent(VfsNode root, VfsNode target)
+        {
+            foreach (var child in root.Children)
+            {
+                if (child == target) return root;
+                if (child.IsDirectory)
+                {
+                    var p = FindParent(child, target);
+                    if (p != null) return p;
+                }
+            }
+            return null;
+        }
+
+        private void CmdVfsCat(string[] args)
+        {
+            if (currentVfs == null)
+            {
+                AppendOutput("VFS не загружен");
+                return;
+            }
+            if (args.Length == 0)
+            {
+                AppendOutput("»спользование: vfs-cat <путь>");
+                return;
+            }
+            var node = ResolveVfsPath(args[0]);
+            if (node == null)
+            {
+                AppendOutput("vfs-cat: путь не найден: " + args[0]);
+                return;
+            }
+            if (node.IsDirectory)
+            {
+                AppendOutput("vfs-cat: путь Ч директори€: " + args[0]);
+                return;
+            }
+            var bytes = node.Content ?? new byte[0];
+            if (bytes.Length == 0)
+            {
+                AppendOutput("(пустой файл)");
+                return;
+            }
+            try
+            {
+                var text = Encoding.UTF8.GetString(bytes);
+                if (Regex.IsMatch(text, "[\x00-\x08\x0B\x0C\x0E-\x1F]"))
+                {
+                    AppendOutput(Convert.ToBase64String(bytes));
+                }
+                else
+                {
+                    AppendOutput(text);
+                }
+            }
+            catch
+            {
+                AppendOutput(Convert.ToBase64String(bytes));
             }
         }
 
